@@ -37,103 +37,12 @@ static void deinit_drivers() {
 	deinit_ps2_filesystem_driver();
 }
 
-typedef struct {
-    int type;
-    char *name;
-    Elf32_Addr virtual_addr;
-    Elf32_Off section_vaddr;
-    Elf32_Addr virtual_offset;
-} SymbolEntry;
-
-typedef struct {
-    SymbolEntry* list;
-    size_t count;
-} Symbols;
-
-void print_symbols(Symbols *symbols) {
-    for (int i = 0; i < symbols->count; i++) {
-        scr_printf("%s - %d - 0x%08lx - 0x%08lx - 0x%08lx\n",
-               symbols->list[i].name,
-               symbols->list[i].type,
-               symbols->list[i].virtual_addr,
-               symbols->list[i].virtual_offset,
-               symbols->list[i].section_vaddr);
-    }
-}
-
-Symbols* read_symbols(char *filename) {
-    Symbols* symlist = NULL;
-    int fd = open(filename, O_RDONLY);
-
-    Elf32_Ehdr elf_header;
-    read(fd, &elf_header, sizeof(Elf32_Ehdr));
-
-    Elf32_Shdr section_header;
-    int shdr_size = elf_header.e_shentsize;
-
-    for (int i = 0; i < elf_header.e_shnum; i++) {
-        lseek(fd, elf_header.e_shoff + (i * shdr_size), SEEK_SET);
-        read(fd, &section_header, shdr_size);
-
-        if (section_header.sh_type == SHT_SYMTAB) {
-            int symbol_count = section_header.sh_size / sizeof(Elf32_Sym);
-            Elf32_Sym *symbol_table = (Elf32_Sym *) malloc(section_header.sh_size);
-            lseek(fd, section_header.sh_offset, SEEK_SET);
-            read(fd, symbol_table, section_header.sh_size);
-
-            int strtab_section_index = section_header.sh_link;
-            Elf32_Shdr strtab_section_header;
-            lseek(fd, elf_header.e_shoff + (strtab_section_index * shdr_size), SEEK_SET);
-            read(fd, &strtab_section_header, shdr_size);
-
-            char *strtab = (char *) malloc(strtab_section_header.sh_size);
-            lseek(fd, strtab_section_header.sh_offset, SEEK_SET);
-            read(fd, strtab, strtab_section_header.sh_size);
-
-            SymbolEntry *symbols = (SymbolEntry *) malloc(symbol_count * sizeof(SymbolEntry));
-
-            for (int j = 0; j < symbol_count; j++) {
-                Elf32_Sym symbol = symbol_table[j];
-                SymbolEntry entry;
-
-                if (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC) {
-                    entry.type = 1;
-                } else {
-                    entry.type = 2;
-                }
-
-                entry.name = &strtab[symbol.st_name];
-                entry.virtual_addr = symbol.st_value;
-                entry.section_vaddr = section_header.sh_offset;
-                entry.virtual_offset = section_header.sh_addr;
-
-                symbols[j] = entry;
-            }
-
-            symlist = malloc(sizeof(Symbols));
-            symlist->list = symbols;
-            symlist->count = symbol_count;
-
-            //print_symbols(symbols, symbol_count);
-
-            //free(symbols);
-            free(symbol_table);
-            free(strtab);
-
-            break;
-        }
-    }
-
-    close(fd);
-
-    return symlist;
-}
 
 typedef struct {
     char *name;
-    Elf32_Addr addr;
-    Elf32_Addr offset;
-    Elf32_Off size;
+    uint32_t addr;
+    uint32_t offset;
+    uint32_t size;
 } SectionEntry;
 
 typedef struct {
@@ -190,12 +99,102 @@ Sections* read_sections(const char* filename) {
     return sec_info;
 }
 
+typedef struct {
+    int type;
+    char *name;
+    uint32_t virtual_addr;
+    uint32_t section_vaddr;
+    uint32_t virtual_offset;
+} SymbolEntry;
+
+typedef struct {
+    SymbolEntry* list;
+    size_t count;
+} Symbols;
+
+void print_symbols(Symbols *symbols) {
+    for (int i = 0; i < symbols->count; i++) {
+        scr_printf("%s - %d - 0x%08lx - 0x%08lx - 0x%08lx\n",
+               symbols->list[i].name,
+               symbols->list[i].type,
+               symbols->list[i].virtual_addr,
+               symbols->list[i].section_vaddr,
+               symbols->list[i].virtual_offset);
+    }
+}
+
+Symbols* read_symbols(char *filename, Sections* section_table) {
+    Symbols* symlist = NULL;
+    int fd = open(filename, O_RDONLY);
+
+    Elf32_Ehdr elf_header;
+    read(fd, &elf_header, sizeof(Elf32_Ehdr));
+
+    Elf32_Shdr section_header;
+    int shdr_size = elf_header.e_shentsize;
+
+    for (int i = 0; i < elf_header.e_shnum; i++) {
+        lseek(fd, elf_header.e_shoff + (i * shdr_size), SEEK_SET);
+        read(fd, &section_header, shdr_size);
+
+        if (section_header.sh_type == SHT_SYMTAB) {
+            int symbol_count = section_header.sh_size / sizeof(Elf32_Sym);
+            Elf32_Sym *symbol_table = (Elf32_Sym *) malloc(section_header.sh_size);
+            lseek(fd, section_header.sh_offset, SEEK_SET);
+            read(fd, symbol_table, section_header.sh_size);
+
+            int strtab_section_index = section_header.sh_link;
+            Elf32_Shdr strtab_section_header;
+            lseek(fd, elf_header.e_shoff + (strtab_section_index * shdr_size), SEEK_SET);
+            read(fd, &strtab_section_header, shdr_size);
+
+            char *strtab = (char *) malloc(strtab_section_header.sh_size);
+            lseek(fd, strtab_section_header.sh_offset, SEEK_SET);
+            read(fd, strtab, strtab_section_header.sh_size);
+
+            SymbolEntry *symbols = (SymbolEntry *) malloc(symbol_count * sizeof(SymbolEntry));
+
+            for (int j = 0; j < symbol_count; j++) {
+                Elf32_Sym symbol = symbol_table[j];
+                SymbolEntry entry;
+
+                if (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC) {
+                    entry.type = 1;
+                } else {
+                    entry.type = 2;
+                }
+
+                entry.name = &strtab[symbol.st_name];
+                entry.virtual_addr = symbol.st_value;
+                entry.section_vaddr = section_table->list[symbol.st_shndx].offset;
+                entry.virtual_offset = section_table->list[symbol.st_shndx].addr;
+
+                symbols[j] = entry;
+            }
+
+            symlist = malloc(sizeof(Symbols));
+            symlist->list = symbols;
+            symlist->count = symbol_count;
+
+            //print_symbols(symbols, symbol_count);
+
+            //free(symbols);
+            free(symbol_table);
+            free(strtab);
+
+            break;
+        }
+    }
+
+    close(fd);
+
+    return symlist;
+}
 
 int main(int argc, char *argv[]) {
-
-
     reset_IOP();
 	init_drivers();
+
     init_scr();
     scr_setCursor(0);
 
@@ -210,7 +209,7 @@ int main(int argc, char *argv[]) {
     scr_clear();
 
     Sections* sections = read_sections("hello.elf");
-    Symbols* syms = read_symbols("hello.elf");
+    Symbols* syms = read_symbols("hello.elf", sections);
 
     print_sections(sections);
     print_symbols(syms);
