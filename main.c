@@ -176,9 +176,6 @@ Symbols* read_symbols(char *filename, Sections* section_table) {
             symlist->list = symbols;
             symlist->count = symbol_count;
 
-            //print_symbols(symbols, symbol_count);
-
-            //free(symbols);
             free(symbol_table);
             free(strtab);
 
