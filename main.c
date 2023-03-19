@@ -129,11 +129,70 @@ Symbols* read_symbols(char *filename) {
     return symlist;
 }
 
-int main(int argc, char *argv[]) {
+typedef struct {
+    char *name;
+    Elf32_Addr addr;
+    Elf32_Addr offset;
+    Elf32_Off size;
+} SectionEntry;
+
+typedef struct {
+    SectionEntry* list;
+    size_t count;
+} Sections;
+
+void print_sections(Sections *sections) {
+    for (int i = 0; i < sections->count; i++) {
+        scr_printf("%s - 0x%08lx - 0x%08lx - %ld\n",
+               sections->list[i].name,
+               sections->list[i].addr,
+               sections->list[i].offset,
+               sections->list[i].size);
+    }
+}
+
+Sections* read_sections(const char* filename) {
+    Sections* sec_info = malloc(sizeof(Sections));
     Elf32_Ehdr elf_header;
     Elf32_Shdr shstr_header;
     char* section_names = NULL;
     int fd;
+
+    fd = open("hello.elf", O_RDONLY);
+    read(fd, &elf_header, sizeof(Elf32_Ehdr));
+
+    lseek(fd, elf_header.e_shoff + elf_header.e_shstrndx * sizeof(Elf32_Shdr), SEEK_SET);
+    read(fd, &shstr_header, sizeof(Elf32_Shdr));
+
+    section_names = malloc(shstr_header.sh_size);
+    lseek(fd, shstr_header.sh_offset, SEEK_SET);
+    read(fd, section_names, shstr_header.sh_size);
+
+    Elf32_Shdr* section_header = malloc(sizeof(Elf32_Shdr)*elf_header.e_shnum);
+    sec_info->list = malloc(sizeof(SectionEntry)*elf_header.e_shnum);
+
+    lseek(fd, elf_header.e_shoff, SEEK_SET);
+    read(fd, section_header, sizeof(Elf32_Shdr)*elf_header.e_shnum);
+
+    for(int j = 0; j < elf_header.e_shnum; j++){
+        sec_info->list[j].name = section_names + section_header[j].sh_name;
+        sec_info->list[j].addr = section_header[j].sh_addr;
+        sec_info->list[j].offset = section_header[j].sh_offset;
+        sec_info->list[j].size = section_header[j].sh_size;
+    }
+
+    sec_info->count = elf_header.e_shnum;
+
+    free(section_header);
+
+    close(fd);
+
+    return sec_info;
+}
+
+
+int main(int argc, char *argv[]) {
+
 
     reset_IOP();
 	init_drivers();
@@ -147,40 +206,13 @@ int main(int argc, char *argv[]) {
     scr_printf("Created by Daniel Santos\n");
 
     scr_printf("Loading PSP executable...\n\n");
-    fd = open("hello.elf", O_RDONLY);
-    read(fd, &elf_header, sizeof(Elf32_Ehdr));
-
-    scr_printf("Total sections: %d\n", elf_header.e_shnum);
-    scr_printf("Entrypoint: 0x%lx\n", elf_header.e_entry);
-
-    scr_printf("Reading executable section info...");
 
     scr_clear();
 
-    lseek(fd, elf_header.e_shoff + elf_header.e_shstrndx * sizeof(Elf32_Shdr), SEEK_SET);
-    read(fd, &shstr_header, sizeof(Elf32_Shdr));
-
-    section_names = malloc(shstr_header.sh_size);
-    lseek(fd, shstr_header.sh_offset, SEEK_SET);
-    read(fd, section_names, shstr_header.sh_size);
-
-    Elf32_Shdr* section_header = malloc(sizeof(Elf32_Shdr)*elf_header.e_shnum);
-
-    lseek(fd, elf_header.e_shoff, SEEK_SET);
-    read(fd, section_header, sizeof(Elf32_Shdr)*elf_header.e_shnum);
-
-    for(int j = 1; j < elf_header.e_shnum; j++){
-        scr_printf("%s 0x%lx 0x%lx %ld\n", section_names + section_header[j].sh_name, section_header[j].sh_addr, section_header[j].sh_offset, section_header[j].sh_size);
-    }
-
-    free(section_header);
-    free(section_names);
-
-    close(fd);
-
-    scr_clear();
-
+    Sections* sections = read_sections("hello.elf");
     Symbols* syms = read_symbols("hello.elf");
+
+    print_sections(sections);
     print_symbols(syms);
 
     SleepThread();
