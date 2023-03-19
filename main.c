@@ -45,18 +45,24 @@ typedef struct {
     Elf32_Addr virtual_offset;
 } SymbolEntry;
 
-void print_symbols(SymbolEntry *symbols, int num_symbols) {
-    for (int i = 0; i < num_symbols; i++) {
-        printf("%s - %d - 0x%08lx - 0x%08lx - 0x%08lx\n",
-               symbols[i].name,
-               symbols[i].type,
-               symbols[i].virtual_addr,
-               symbols[i].virtual_offset,
-               symbols[i].section_vaddr);
+typedef struct {
+    SymbolEntry* list;
+    size_t count;
+} Symbols;
+
+void print_symbols(Symbols *symbols) {
+    for (int i = 0; i < symbols->count; i++) {
+        scr_printf("%s - %d - 0x%08lx - 0x%08lx - 0x%08lx\n",
+               symbols->list[i].name,
+               symbols->list[i].type,
+               symbols->list[i].virtual_addr,
+               symbols->list[i].virtual_offset,
+               symbols->list[i].section_vaddr);
     }
 }
 
-void read_symbols(char *filename) {
+Symbols* read_symbols(char *filename) {
+    Symbols* symlist = NULL;
     int fd = open(filename, O_RDONLY);
 
     Elf32_Ehdr elf_header;
@@ -64,7 +70,6 @@ void read_symbols(char *filename) {
 
     Elf32_Shdr section_header;
     int shdr_size = elf_header.e_shentsize;
-    int strtab_offset = 0;
 
     for (int i = 0; i < elf_header.e_shnum; i++) {
         lseek(fd, elf_header.e_shoff + (i * shdr_size), SEEK_SET);
@@ -105,9 +110,13 @@ void read_symbols(char *filename) {
                 symbols[j] = entry;
             }
 
-            print_symbols(symbols, symbol_count);
+            symlist = malloc(sizeof(Symbols));
+            symlist->list = symbols;
+            symlist->count = symbol_count;
 
-            free(symbols);
+            //print_symbols(symbols, symbol_count);
+
+            //free(symbols);
             free(symbol_table);
             free(strtab);
 
@@ -116,6 +125,8 @@ void read_symbols(char *filename) {
     }
 
     close(fd);
+
+    return symlist;
 }
 
 int main(int argc, char *argv[]) {
@@ -127,6 +138,7 @@ int main(int argc, char *argv[]) {
     reset_IOP();
 	init_drivers();
     init_scr();
+    scr_setCursor(0);
 
     // scr_setfontcolor(0xFFFF0080);
     // scr_setbgcolor(0xFF202020);
@@ -143,7 +155,6 @@ int main(int argc, char *argv[]) {
 
     scr_printf("Reading executable section info...");
 
-    sleep(2);
     scr_clear();
 
     lseek(fd, elf_header.e_shoff + elf_header.e_shstrndx * sizeof(Elf32_Shdr), SEEK_SET);
@@ -158,9 +169,8 @@ int main(int argc, char *argv[]) {
     lseek(fd, elf_header.e_shoff, SEEK_SET);
     read(fd, section_header, sizeof(Elf32_Shdr)*elf_header.e_shnum);
 
-    for(int j = 1; j < elf_header.e_shnum; j++
-    ){
-        scr_printf("%s section - address: 0x%lx | offset: 0x%lx | size: %ld\n", section_names + section_header[j].sh_name, section_header[j].sh_addr, section_header[j].sh_offset, section_header[j].sh_size);
+    for(int j = 1; j < elf_header.e_shnum; j++){
+        scr_printf("%s 0x%lx 0x%lx %ld\n", section_names + section_header[j].sh_name, section_header[j].sh_addr, section_header[j].sh_offset, section_header[j].sh_size);
     }
 
     free(section_header);
@@ -170,7 +180,8 @@ int main(int argc, char *argv[]) {
 
     scr_clear();
 
-    read_symbols("hello.elf");
+    Symbols* syms = read_symbols("hello.elf");
+    print_symbols(syms);
 
     SleepThread();
 
